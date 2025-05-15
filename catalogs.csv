@@ -187,7 +187,7 @@ cr261oid,Collinder 261 Chandra X-Ray Source Optical Counterparts Catalog
 crabtime,Crab Pulsar Timing
 crates,CRATES Flat-Spectrum Radio Source Catalog
 cratesocrap,OCRA-p Survey of a Subset of CRATES Sources
-csc,Chandra Source Catalog, v2.0
+csc,Chandra Source Catalog, v2.1.1
 cvcat,Cataclysmic Variables Catalog (2006 Final Edition)
 cxogsgsrc,Chandra ACIS GSG Point-Like X-Ray Source Catalog
 cxoxassist,Chandra XAssist Source List
@@ -844,6 +844,7 @@ swift2sxps,Swift-XRT Point Source Catalog (2SXPS)
 swiftbalog,Swift BAT Instrument Log
 swiftft,Swift Serendipitous Survey in Deep XRT GRB Fields (SwiftFT)
 swiftgrb,Swift Gamma Ray Bursts Catalog
+swiftgrbba,Swift Gamma Ray Burst Compilation by Burst Advocate
 swiftguano,Swift Gamma-ray Urgent Archiver for Novel Opportunities (GUANO)
 swiftmastr,Swift Master Catalog
 swifttdrss,Swift TDRSS Messages
