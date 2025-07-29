@@ -3,16 +3,13 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import astropy.coordinates as coord
 import numpy as np
-from astroquery.vizier import Vizier
-
-
-from astroquery.skyview import SkyView
 from astropy.io import fits
 from astropy.utils.data import download_file
 from astropy.wcs import WCS
 import astropy.units as u
 from astropy import wcs
 from matplotlib.patches import Ellipse
+import pandas as pd
 
 #STUFF TO DO 
 #1 load big picture, get wcs from header
@@ -22,21 +19,26 @@ from matplotlib.patches import Ellipse
 #5 figure out how to plot the ellipse (especially the rotation, need to add how far away declination is from north)
 
 
-if __name__ == "__main__":
+#functions:
 
-    #chandra source catalog
-    catalog_name = 	'IX/57/csc2master'
+#f
+
+if __name__ == "__main__":
     
     # Place a big circle at each par TARGET coords
     # should be 3 arcminutes radius
     #get all chandra objects in that radius
-    safe_rad=0.05 #1/20 is 3/60 arcminutes in a degree, this is in degrees
+
+
     par_coords_import=np.loadtxt('./par_coords.csv',dtype='str',delimiter=',')
     par_coords_list=coord.SkyCoord(ra=par_coords_import[:,1],dec=par_coords_import[:,2],unit=(u.deg, u.deg))
     par_names=par_coords_import[:,0]
 
 
- 
+    cscres_table=pd.read_csv('/home/AGN_proj/agn_git/cscresults_nodup.tsv', sep='\t')
+    cscobj_table=pd.read_csv('/home/AGN_proj/agn_git/csc_table.csv', sep=',')
+
+  
 
     for i in range(len(par_coords_list)):
 
@@ -44,11 +46,12 @@ if __name__ == "__main__":
 
         try: 
             #load picture of par
-            pic_hdulst=fits.open('./big_pix/'+current_par+'_comb_drz_sci.fits')
+            pic_hdulst=fits.open('/home/AGN_proj/agn_storage/big_pix/'+current_par+'_comb_drz_sci.fits')
             pic_header=pic_hdulst[0].header
             print(pic_header)
+#            #get the wcs from the header
 
-            w=wcs.WCS(pic_header)
+            jw_wcs=wcs.WCS(pic_header)
             data=pic_hdulst[0].data
             
             im_scale=np.abs(pic_header['CD1_1']) #degrees per pixel
@@ -59,7 +62,7 @@ if __name__ == "__main__":
 
 
         try: 
-            hdulst=fits.open('./spec_fits/'+current_par+'_speccat.fits')
+            hdulst=fits.open('/home/AGN_proj/agn_storage/spec_fits/'+current_par+'_speccat.fits')
             tabhdu=hdulst[1]
             jw_table=tabhdu.data
         except FileNotFoundError:
@@ -68,39 +71,67 @@ if __name__ == "__main__":
 
         print(current_par+'\n')
 
-        #query chandra
-        chandra_result = Vizier.query_region(par_coords_list[i],catalog=catalog_name,radius=0.05*u.deg)
-
-        if len(chandra_result) > 0:
-            chandra_table=chandra_result[0]
-        else:
-            print("Nothing found for "+ current_par)
-            continue
+        cscobj_table_par=cscobj_table[cscobj_table['par_name'] == current_par]
+        obj_coords_par=coord.SkyCoord(ra=cscobj_table['ra'], dec=cscobj_table['dec'], unit=(u.deg, u.deg))
 
         jw_coords=coord.SkyCoord(ra=jw_table['ra'],dec=jw_table['dec'],unit=(u.deg, u.deg))
-        chan_coords=coord.SkyCoord(ra=chandra_table['RAICRS'],dec=chandra_table['DEICRS'],unit=(u.deg, u.deg))
 
-        for source in range(len(chandra_table)):
-            source_info=chandra_table[source]
-            source_coords=chan_coords[source]
+        #now we want to loop throught the chandra objects in the par, and use the chan filenames to get the region image, and load that
+        #then we 
 
-            criteria=jw_coords.separation(chan_coords[source]) < source_info['r0']*u.arcsec
+        for source in range(len(cscobj_table_par)):
+
+            source_info=cscobj_table_par[source]
+            source_coords=obj_coords_par[source]
+
+            #load the chandra region image
+
+            chan_filename=source_info['chan_filename']
+
+            try:
+                chan_hdulst=fits.open('/home/AGN_proj/agn_storage/spec_fits/'+chan_filename)
+                chan_header=chan_hdulst[0].header
+                chan_data=chan_hdulst[0].data
+                ch_wcs=wcs.WCS(chan_header)
+            except FileNotFoundError:
+                print("No Associated (chan) Fits file for "+ current_par + " " + source_info['name'])
+                continue
+
+            criteria=jw_coords.separation(source_coords) < source_info['error_ellipse_r0']*1.2*u.arcsec
             
             candidates= jw_table[criteria]
             cand_coords=jw_coords[criteria]
-            
+            #candidates is a table of all the candidates in the region, with their coordinates
+            #cand_coords is a SkyCoord object of the candidates in the region
             if len(candidates)>0:
-                print('\n Chandra Name: ' + source_info['_2CXO'])
-                print('Significance: ' + str(source_info['S_N']))
+                print('\n Chandra Name: ' + source_info['name'])
+                print('Significance: ' + str(source_info['significance']))
                 print('Candidates:')
                 print(candidates['id'])
+#left to do:
+                #make a plot of the chandra region image, with the candidates overlaid
+                #and the error ellipse overlaid
+                #and the PASSAGE JW image as either a rainbow contour plot (chand grayscale imshow)
+                #or a different colored imshow (red and green, or blue) with opacity 0.5 for each
 
+                #USE astropy.visualization.wcsaxes/overlay tutorials available instead
+                #of what used for this last time.
+
+                #basic idea - use WCS for the axes object - this is the chandra coords
+                # then, use transform for the contour (JW plot)
+                # maybe can also use transform for the double imshow version? 
+
+                #maybe keep the original plot with just the ellipse and jw too for good context
+                #would be awesome to have these side by side
+
+                #dont worry about Cutout2D for JW image for now - but might be more performant?
+                #plotting the chandra image as a
                 x_jw,y_jw=w.world_to_pixel(cand_coords)
                 id_jw=candidates['id']
 
-                smaj_ax=source_info['r0']
-                smin_ax=source_info['r1']
-                ell_ang=source_info['PA'] #angl of ellipse measured from north->east
+                smaj_ax=source_info['error_ellipse_r0']
+                smin_ax=source_info['error_ellipse_r1']
+                ell_ang=source_info['error_ellipse_angle'] #angl of ellipse measured from north->east
                 
                 im_center=w.world_to_pixel(source_coords)
                 im_edge_len=smaj_ax*3/(3600*im_scale)
