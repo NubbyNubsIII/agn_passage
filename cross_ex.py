@@ -10,6 +10,8 @@ import astropy.units as u
 from astropy import wcs
 from matplotlib.patches import Ellipse
 import pandas as pd
+from astropy.nddata import Cutout2D
+import astropy.nddata.utils as utils
 
 #STUFF TO DO 
 #1 load big picture, get wcs from header
@@ -35,8 +37,8 @@ if __name__ == "__main__":
     par_names=par_coords_import[:,0]
 
 
-    cscres_table=pd.read_csv('/home/AGN_proj/agn_git/cscresults_nodup.tsv', sep='\t')
-    cscobj_table=pd.read_csv('/home/AGN_proj/agn_git/csc_table.csv', sep=',')
+    cscres_table=pd.read_csv('/home/jacoblevine7/AGN_proj/agn_git/cscresults_nodup.tsv', sep='\t')
+    cscobj_table=pd.read_csv('/home/jacoblevine7/AGN_proj/agn_git/csc_table.csv', sep=',')
 
   
 
@@ -46,9 +48,8 @@ if __name__ == "__main__":
 
         try: 
             #load picture of par
-            pic_hdulst=fits.open('/home/AGN_proj/agn_storage/big_pix/'+current_par+'_comb_drz_sci.fits')
+            pic_hdulst=fits.open('/home/jacoblevine7/AGN_proj/agn_storage/big_pix/'+current_par+'_comb_drz_sci.fits')
             pic_header=pic_hdulst[0].header
-            print(pic_header)
 #            #get the wcs from the header
 
             jw_wcs=wcs.WCS(pic_header)
@@ -62,7 +63,7 @@ if __name__ == "__main__":
 
 
         try: 
-            hdulst=fits.open('/home/AGN_proj/agn_storage/spec_fits/'+current_par+'_speccat.fits')
+            hdulst=fits.open('/home/jacoblevine7/AGN_proj/agn_storage/spec_fits/'+current_par+'_speccat.fits')
             tabhdu=hdulst[1]
             jw_table=tabhdu.data
         except FileNotFoundError:
@@ -72,7 +73,8 @@ if __name__ == "__main__":
         print(current_par+'\n')
 
         cscobj_table_par=cscobj_table[cscobj_table['par_name'] == current_par]
-        obj_coords_par=coord.SkyCoord(ra=cscobj_table['ra'], dec=cscobj_table['dec'], unit=(u.deg, u.deg))
+        print(f'Number of Chandra Objects in {current_par}: {len(cscobj_table_par)}')
+        obj_coords_par=coord.SkyCoord(ra=cscobj_table_par['ra'], dec=cscobj_table_par['dec'], unit=(u.deg, u.deg))
 
         jw_coords=coord.SkyCoord(ra=jw_table['ra'],dec=jw_table['dec'],unit=(u.deg, u.deg))
 
@@ -81,108 +83,121 @@ if __name__ == "__main__":
 
         for source in range(len(cscobj_table_par)):
 
-            source_info=cscobj_table_par[source]
+            source_info=cscobj_table_par.iloc[source]
             source_coords=obj_coords_par[source]
 
             #load the chandra region image
 
             chan_filename=source_info['chan_filename']
+                        
+            smaj_ax=source_info['error_ellipse_r0']
+            smin_ax=source_info['error_ellipse_r1']
+            ell_ang=source_info['error_ellipse_angle']
+
 
             try:
-                chan_hdulst=fits.open('/home/AGN_proj/agn_storage/spec_fits/'+chan_filename)
+                chan_hdulst=fits.open('/home/jacoblevine7/AGN_proj/agn_storage/chan_pix/chan_pix_good/'+chan_filename)
                 chan_header=chan_hdulst[0].header
                 chan_data=chan_hdulst[0].data
-                ch_wcs=wcs.WCS(chan_header)
+                chan_wcs=wcs.WCS(chan_header)
             except FileNotFoundError:
                 print("No Associated (chan) Fits file for "+ current_par + " " + source_info['name'])
                 continue
 
-            criteria=jw_coords.separation(source_coords) < source_info['error_ellipse_r0']*1.2*u.arcsec
+            criteria=jw_coords.separation(source_coords) < np.max([source_info['error_ellipse_r0'].item()*1.3,2.7])*u.arcsec
             
             candidates= jw_table[criteria]
             cand_coords=jw_coords[criteria]
             #candidates is a table of all the candidates in the region, with their coordinates
             #cand_coords is a SkyCoord object of the candidates in the region
-            if len(candidates)>0:
+            if len(candidates)>-1:
                 print('\n Chandra Name: ' + source_info['name'])
                 print('Significance: ' + str(source_info['significance']))
                 print('Candidates:')
                 print(candidates['id'])
 #left to do:
-                #make a plot of the chandra region image, with the candidates overlaid
-                #and the error ellipse overlaid
-                #and the PASSAGE JW image as either a rainbow contour plot (chand grayscale imshow)
-                #or a different colored imshow (red and green, or blue) with opacity 0.5 for each
+                #make shit look nice (standardize plot sizes, etc)
+                #cull the bad ones
+                #explore colorbar on top of right plot?
+                #consider plotting the whole par with all the chandra objects too, to see which ones are actually in the field
+                #need to figure out if the objects that appear not to be labelled are actually labelled or not?
 
-                #USE astropy.visualization.wcsaxes/overlay tutorials available instead
-                #of what used for this last time.
+                
+                cnorm_jw=mpl.colors.SymLogNorm(0.0005,0.1)
+                
+                size=np.max([source_info['error_ellipse_r0'].item()*3,6])*u.arcsec # put a minimum size of 6 arcsec
 
-                #basic idea - use WCS for the axes object - this is the chandra coords
-                # then, use transform for the contour (JW plot)
-                # maybe can also use transform for the double imshow version? 
-
-                #maybe keep the original plot with just the ellipse and jw too for good context
-                #would be awesome to have these side by side
-
-                #dont worry about Cutout2D for JW image for now - but might be more performant?
-                #plotting the chandra image as a
-                x_jw,y_jw=w.world_to_pixel(cand_coords)
+                try:
+                    cutout=Cutout2D(data,position=source_coords,size=size,wcs=jw_wcs)
+                except utils.NoOverlapError:
+                    print(f'Cutout for {source_info["name"]} is out of bounds of the image.')
+                    continue
+                im_center=source_coords.to_pixel(cutout.wcs)
+                x_jw,y_jw=cand_coords.to_pixel(cutout.wcs)
                 id_jw=candidates['id']
+                #make a colormap to use for the overlay data
+                base_cmap = plt.cm.hot
+                new_cmap = mpl.colors.ListedColormap(list(base_cmap(np.linspace(0, 1, 256))))
+                new_cmap.set_under(color=(1,0,0,0))  # Set the color for out_of_bounds values to transparent red
 
-                smaj_ax=source_info['error_ellipse_r0']
-                smin_ax=source_info['error_ellipse_r1']
-                ell_ang=source_info['error_ellipse_angle'] #angl of ellipse measured from north->east
-                
-                im_center=w.world_to_pixel(source_coords)
-                im_edge_len=smaj_ax*3/(3600*im_scale)
+                fig=plt.figure(figsize=(20,5))
 
-                #plt.figure() JJUST CHECKING DISTRIBUTION FOR COLORSCALING
-                #data_list=np.ravel(data)
-                #plt.hist(data_list[np.logical_and(data_list>0,data_list<0.025)], bins=1000)
-                #plt.show()
+                gs=fig.add_gridspec(1,4,hspace=0,wspace=0)
+                ax1 = fig.add_subplot(gs[0, 0], projection=cutout.wcs)
+                ax2 = fig.add_subplot(gs[0, 1], projection=cutout.wcs)  
+                ax3 = fig.add_subplot(gs[0, 2], projection=chan_wcs)   
 
-                fig=plt.figure(figsize=(8,8))
+                ax1.tick_params(axis='x',top=False, bottom=True, labelbottom=True)
+                ax1.tick_params(axis='y',right=False, left=True,labelleft=True)
+                ax1.set(xlabel='RA', ylabel='Dec')
+                ax1.set_title('Combined Image')
 
-                 #make axes object
-                ax=fig.add_axes((1.5/8,1.5/8,5/8,5/8),projection=w)
+                ax2.tick_params(axis='x',top=False, left=False, right=False,labelleft=False,labelbottom=False)
+                ax2.tick_params(axis='y',top=False, left=False, right=False,labelleft=False,labelbottom=False)
+                ax2.set(xlabel='RA', ylabel='Dec')
+                ax2.set_title('JWST Field Cutout')
 
-                overlay=ax.get_coords_overlay('icrs')
-                overlay.grid(color='white',ls='dotted')
-                overlay[0].set_axislabel('Right Ascension (degrees, J2000)') #label the overlay
-                overlay[1].set_axislabel('Declination (degrees, J2000)')
-                ax.set_xlabel("Right Ascension") #label the other sides for clarity
-                ax.set_ylabel("Declination")
-                ax.set_title(current_par+": CSC "+source_info['_2CXO']+", Sig: "+str(source_info['S_N']),
-                             y=0.95, bbox=dict(boxstyle="square,pad=0.3",
-                                               fc='lightblue'))
-                
+                ax3.tick_params(axis='x',top=False, labelbottom=True, bottom=True)
+                ax3.tick_params(axis='y', right=False, labelleft =False, labelright=True,left=False)
+                ax3.set(xlabel='RA',ylabel=' ')
+                ax3.set_title('Chandra Region Image')
+
+
+                ax1.set_xlim(0, cutout.data.shape[1])
+                ax1.set_ylim(0, cutout.data.shape[0])
+
+
+                ax1.imshow(cutout.data,origin='lower',cmap='gray',norm=cnorm_jw)
+                ax1.imshow(chan_data,origin='lower', cmap=new_cmap, vmin=0,transform=ax1.get_transform(chan_wcs), alpha=0.3)
+                ax1.grid(color='white', alpha=0.2, linestyle='--')
+
+                ax2.imshow(cutout.data,origin='lower',cmap='gray',norm=cnorm_jw)
+                ax2.text(cutout.data.shape[0]/2, -cutout.data.shape[1]/20, s=str(source_info['name']), fontsize=12, color='black', ha='center', va='center')
+                ax2.text(cutout.data.shape[0]/2, -cutout.data.shape[1]/8, s=str(source_info['par_name']), fontsize=12, color='black', ha='center', va='center')
+
                 ell=Ellipse(im_center,2*smin_ax/(3600*im_scale),
-                            2*smaj_ax/(3600*im_scale),angle=-ell_ang,
-                            fill=False,color='red')
-                ax.add_patch(ell)
-
-                ax.set_xlim(im_center[0]-im_edge_len/2,im_center[0]+im_edge_len/2)
-                ax.set_ylim(im_center[1]-im_edge_len/2,im_center[1]+im_edge_len/2)
-
-                ax.scatter(im_center[0],im_center[1],marker='+',color='red')
-
-                
+                                            2*smaj_ax/(3600*im_scale),angle=-ell_ang,
+                                            fill=False,color='red')
+                ax2.add_patch(ell)
+                ax2.scatter(im_center[0],im_center[1],marker='+',color='red',s=20)
 
                 for i, txt in enumerate(id_jw):
-                    ax.annotate(txt,(x_jw[i],y_jw[i]),xytext=(x_jw[i]+10,y_jw[i]),
+                    ax2.annotate(txt,(x_jw[i],y_jw[i]),xytext=(x_jw[i]+5,y_jw[i]),
                                 bbox=dict(boxstyle="square,pad=0.1",
-                      fc="white", ec="black"))
-                ax.scatter(x_jw,y_jw,marker='*',s=10,color='cyan')    
+                        fc="white", ec="black"))
+                    ax2.scatter(x_jw,y_jw,marker='*',s=8,color='cyan')
 
 
-                cnorm = mpl.colors.SymLogNorm(0.0005,0.1)
+                ax3.imshow(chan_data,origin='lower', cmap='hot')
+                ax3.grid(color='white', alpha=0.2, linestyle='--')
+                ax3.text(chan_data.shape[0]-chan_data.shape[0]/6, chan_data.shape[1]-chan_data.shape[1]/15, s='Sig: '+str(np.round(source_info['significance'],3)),
+                    fontsize=10, ha='center', va='center',bbox=dict(boxstyle="square,pad=0.2", fc="white", ec="black"))
+                #ax3.annotate('Sig: '+str(np.round(source['significance'].item(),4)),(chan_data.shape[0]-chan_data.shape[0]/6, chan_data.shape[1]-chan_data.shape[1]/6),xytext=(x_jw[i]+5,y_jw[i]),
+                #              bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="black"))
 
-                cmap = 'gray' #use magma color map
-                ### show the data on an image object, normalized by lognorm object
-                im = ax.imshow(data, origin='lower', norm=cnorm, cmap=cmap)
+
                 
-                chan_for_file=source_info['_2CXO'].replace("+","_")
-                plt.savefig(current_par+"_CSC_"+chan_for_file+".png")
+                fig.savefig('/home/jacoblevine7/AGN_proj/agn_storage/chan_results/'+current_par+"_CSC_"+source_info['name'].split(' ',1)[1]+".png")
                 
 
 
